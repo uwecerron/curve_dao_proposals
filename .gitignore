@@ -2,3 +2,5 @@ config.json
 state.json
 monitor.log
 all_proposals.json
+votemarket_state.json
+votemarket_monitor.log

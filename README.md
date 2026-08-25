@@ -99,3 +99,67 @@ Vercel's cron jobs are built around serverless functions and, on free tiers,
 cap out at once/day — too infrequent here. Railway's Cron Job service type is
 built exactly for "run a script every N minutes and exit," which matches this
 script's design (it isn't a long-running poller/loop).
+
+## Votemarket Incentive Watcher (check_votemarket.py)
+
+Same idea as `check_proposals.py`, but for Votemarket (Stake DAO) bribe/
+incentive campaigns instead of Curve DAO proposals. Tracks three markets:
+
+- **Curve** (`curve` — covers both veCRV and vlCVX; those are just a UI
+  toggle over the same underlying campaign data, not separate feeds)
+- **f(x) protocol** (`fxn`)
+- **Yield Basis** (`yb`)
+
+For each market it polls the same API votemarket.org's own frontend calls
+(`api-v3.stakedao.org/votemarket/{market}` for campaigns,
+`api-v3.stakedao.org/{market}/gauges` for human-readable pool names), diffs
+against the set of campaign keys already seen (persisted in
+`votemarket_state.json`), and posts one Telegram message per brand-new
+campaign with: which pool/pair is being incentivized, how much (token amount
++ USD value), and for how long (weeks + start/end dates).
+
+**Known gap — Frax:** the "Frax" entry in votemarket.org's own sidebar links
+out to a separate legacy app (`classic.votemarket.org/?market=fxs`), not the
+same v2 API the other three markets use. That legacy app doesn't expose a
+plain JSON API (no matching network requests were visible even after
+loading the page) and currently has very little bounty volume (~$100 total
+at the time this was built). It is **not** covered by this script. If Frax
+incentive volume picks up later, this would need separate reverse-engineering
+against that legacy app (or its wallet-based on-chain reads) to add — flagging
+it now rather than shipping something fragile for a near-empty market.
+
+### Commands
+
+```
+python3 check_votemarket.py            # normal run — posts only brand-new campaigns
+python3 check_votemarket.py --init      # records all current campaign keys as baseline, posts nothing
+python3 check_votemarket.py --test      # force-posts the single largest active campaign per market (state untouched)
+```
+
+Just like `check_proposals.py`, the very first normal run auto-baselines
+(no `votemarket_state.json` yet -> records everything currently live and
+sends nothing), so it's safe to point cron at plain `check_votemarket.py`
+from day one.
+
+### Deploying alongside the proposal watcher
+
+This lives in the same repo/folder as `check_proposals.py` and reuses the
+same Telegram credentials (`TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID`) — no
+`OPENROUTER_API_KEY` needed here since the campaign data is already
+structured (pool, amount, duration), not free text that needs summarizing.
+
+Deploy it as a **second Railway Cron Job service** in the same project:
+
+1. In the Railway project, add a new service from the same GitHub repo
+   (or `railway add` if using the CLI).
+2. **Settings -> Deploy -> Start Command:** `python3 check_votemarket.py`
+3. **Settings -> Cron Schedule:** `*/30 * * * *` (same 30-minute cadence)
+4. **Variables:** `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `STATE_DIR=/app/data`
+   (can reuse the same values as the proposal watcher's service)
+5. **Attach a volume** mounted at `/app/data` for this service too (a
+   separate volume, or a second mount of the same one — either works since
+   the two scripts write different filenames: `state.json` vs
+   `votemarket_state.json`). Without it, `votemarket_state.json` won't
+   survive between runs and it'll silently re-baseline instead of alerting.
+6. Force a `--test` run first and confirm messages land in the chat before
+   trusting the schedule — same sanity-check rule as the proposal watcher.
