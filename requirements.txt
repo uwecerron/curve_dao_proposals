@@ -1,0 +1,2 @@
+# No third-party dependencies — stdlib only (urllib, json, os, time, datetime).
+# This file just makes sure Railway's Nixpacks builder detects this as a Python service.
