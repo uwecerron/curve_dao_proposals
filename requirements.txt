@@ -1,2 +1,4 @@
-# No third-party dependencies — stdlib only (urllib, json, os, time, datetime).
-# This file just makes sure Railway's Nixpacks builder detects this as a Python service.
+# check_proposals.py and check_votemarket.py use stdlib only (urllib, json, os, time, datetime).
+# check_votemarket_frax.py needs web3 to read Frax's Votemarket bounty contract directly
+# on-chain (that market has no public REST API the way Curve/f(x)/Yield Basis do).
+web3>=6.0.0,<8.0.0

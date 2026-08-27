@@ -163,3 +163,60 @@ Deploy it as a **second Railway Cron Job service** in the same project:
    survive between runs and it'll silently re-baseline instead of alerting.
 6. Force a `--test` run first and confirm messages land in the chat before
    trusting the schedule — same sanity-check rule as the proposal watcher.
+
+## Frax Incentive Watcher (check_votemarket_frax.py)
+
+Frax's Votemarket bribes turned out to run on different infrastructure than
+Curve / f(x) protocol / Yield Basis, so it needed a different approach
+rather than being a 4th market inside `check_votemarket.py`.
+
+Those three markets all live on Votemarket's newer "v2" platform, which has
+a clean REST API. Frax's market (linked from votemarket.org's sidebar to
+`classic.votemarket.org/?market=fxs`) runs on the older "Votemarket V1"
+contract, and that app has no public REST API for it — the page reads
+bounty data straight from the blockchain. So this script does the same:
+it reads bounties directly from the on-chain contract
+(`0x000000060e56DEfD94110C1a9497579AD7F5b254`, Stake DAO's open-source,
+verified `Platform.sol`) via a public Ethereum RPC endpoint. No third-party
+API, no dependency on any aggregator staying online.
+
+Bounties on that contract get strictly increasing integer IDs (0, 1, 2...),
+so watching for new ones is the same "id > last_seen_id" pattern
+`check_proposals.py` uses for DAO proposals — just against the chain
+instead of an HTTP feed. Pool/gauge names are resolved via Frax's own
+public gauge list (`api.frax.finance/v2/gauges`), and USD pricing via
+DefiLlama's public price API.
+
+(An older aggregator, Hidden Hand, also lists a Frax market, but it's been
+sunset — its own site shows a wind-down notice with final claims closed
+30 June 2026 — and its data was already stale when checked. Reading the
+contract directly sidesteps that problem entirely.)
+
+This is the one script in the project with a real dependency: `web3`
+(for RPC calls and ABI encoding/decoding — Python's stdlib has no
+keccak/ABI support, which reading a contract needs). It's pinned in
+`requirements.txt`.
+
+### Commands
+
+```
+python3 check_votemarket_frax.py            # normal run — posts only brand-new bounties
+python3 check_votemarket_frax.py --init      # records current bounty count as baseline, posts nothing
+python3 check_votemarket_frax.py --test      # force-posts the most recent bounty (state untouched)
+```
+
+### Deploying alongside the other watchers
+
+Same pattern as `check_votemarket.py` — a **third Railway Cron Job
+service** in the same project, from the same repo:
+
+- **Start Command:** `python3 check_votemarket_frax.py`
+- **Cron Schedule:** `*/30 * * * *`
+- **Variables:** `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `STATE_DIR=/app/data`
+  (reuse the same values as the other two services). Optionally
+  `ETH_RPC_URL` to point at your own RPC endpoint instead of the default
+  public one (`https://ethereum-rpc.publicnode.com`), if you want higher
+  reliability/rate limits than a free public node offers.
+- **Attach a volume** mounted at `/app/data` so `votemarket_frax_state.json`
+  survives between runs.
+- Force a `--test` run first and confirm it lands in the chat.
