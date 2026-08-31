@@ -6,3 +6,5 @@ votemarket_state.json
 votemarket_monitor.log
 votemarket_frax_state.json
 votemarket_frax_monitor.log
+snapshot_state.json
+snapshot_monitor.log

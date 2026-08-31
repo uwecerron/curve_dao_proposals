@@ -220,3 +220,54 @@ service** in the same project, from the same repo:
 - **Attach a volume** mounted at `/app/data` so `votemarket_frax_state.json`
   survives between runs.
 - Force a `--test` run first and confirm it lands in the chat.
+
+## Snapshot Governance Proposal Watcher (check_snapshot_proposals.py)
+
+Tracks new governance proposals in Snapshot.org spaces, via Snapshot's public
+GraphQL API (`https://hub.snapshot.org/graphql`) — no API key needed, no
+on-chain reads. Currently covers two spaces:
+
+- **Ethena** (`ethenagovernance.eth`) — e.g. the "ENA Fee Switch" proposal
+- **Spark** (`sparkfi.eth`)
+
+Add more spaces later by adding one line to the `SPACES` dict at the top of
+the script (Snapshot space id -> display name) — no other changes needed.
+
+Snapshot proposal ids are hex hashes, not sequential integers, so this
+tracks a *set* of seen ids per space (persisted in `snapshot_state.json`),
+the same pattern `check_votemarket.py` uses for campaign keys, rather than
+the "id > last_seen" watermark `check_proposals.py` uses for Curve DAO votes.
+
+Each alert includes the proposal title, a summary (AI-generated via
+OpenRouter if `OPENROUTER_API_KEY` is set — same summarizer setup as
+`check_proposals.py` — otherwise the raw proposal body, truncated), when it
+was created, and a link in the `https://snapshot.box/#/s:<space>/proposal/<id>`
+format.
+
+### Commands
+
+```
+python3 check_snapshot_proposals.py            # normal run — posts only brand-new proposals
+python3 check_snapshot_proposals.py --init      # records all current proposal ids as baseline, posts nothing
+python3 check_snapshot_proposals.py --test      # force-posts the single newest proposal per space (state untouched)
+```
+
+Just like the other watchers, the very first normal run auto-baselines (no
+`snapshot_state.json` yet -> records everything currently live and sends
+nothing), so it's safe to point cron at plain `check_snapshot_proposals.py`
+from day one.
+
+### Deploying alongside the other watchers
+
+Same pattern as the others — a **fourth Railway Cron Job service** in the
+same project, from the same repo:
+
+- **Start Command:** `python3 check_snapshot_proposals.py`
+- **Cron Schedule:** `*/30 * * * *`
+- **Variables:** `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `STATE_DIR=/app/data`
+  (reuse the same values as the other services). Optionally
+  `OPENROUTER_API_KEY` / `OPENROUTER_MODEL` for AI summaries — without it,
+  alerts fall back to the raw proposal text.
+- **Attach a volume** mounted at `/app/data` so `snapshot_state.json`
+  survives between runs.
+- Force a `--test` run first and confirm it lands in the chat.
